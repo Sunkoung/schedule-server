@@ -23,12 +23,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const uid = () => crypto.randomBytes(5).toString('hex');
 
 const defaultData = () => ({
-  sets: [{
-    id: uid(), name: '6월 정기 세트', color: 'red', events: [
-      { id: uid(), date: '2025-06-06', title: '6월 연습',     desc: '정기모임 전 사전 연습\n장소: 연습실 A\n시간: 오후 2시~5시' },
-      { id: uid(), date: '2025-06-14', title: '6월 정기모임', desc: '월례 정기모임\n장소: 커뮤니티센터 3층\n시간: 오후 3시~6시' },
-    ]
-  }],
+  sets: [],
   avail: {}
 });
 
