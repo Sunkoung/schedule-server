@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>일정 조율</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Noto Sans KR',-apple-system,BlinkMacSystemFont,sans-serif;background:#F2F0EC;color:#1a1a1a;min-height:100vh}
+input,textarea,button,select{font-family:inherit}
+input:focus,textarea:focus{outline:2px solid #1a1a1a;outline-offset:-1px;border-color:transparent!important}
+button:active{transform:scale(.97)}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#ddd;border-radius:3px}
+.fade-in{animation:fadeIn .2s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.pulse{animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback} = React;
+
+const C = {
+  red:    {bg:'#FEF2F2',text:'#991B1B',accent:'#EF4444',border:'#FECACA'},
+  blue:   {bg:'#EFF6FF',text:'#1E40AF',accent:'#3B82F6',border:'#BFDBFE'},
+  green:  {bg:'#F0FDF4',text:'#166534',accent:'#22C55E',border:'#BBF7D0'},
+  purple: {bg:'#FAF5FF',text:'#6B21A8',accent:'#A855F7',border:'#E9D5FF'},
+  amber:  {bg:'#FFFBEB',text:'#92400E',accent:'#F59E0B',border:'#FDE68A'},
+};
+const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+const DOWS   = ['일','월','화','수','목','금','토'];
+
+/* ── API helpers ── */
+const api = {
+  get:    (url)       => fetch(url).then(r=>r.json()),
+  post:   (url,body)  => fetch(url,{method:'POST',  headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json()),
+  delete: (url)       => fetch(url,{method:'DELETE'}).then(r=>r.json()),
+};
+
+/* ══════════════════════════════════════ App ══ */
+function App() {
+  const today = new Date();
+  const [sets,    setSets]   = useState([]);
+  const [avail,   setAvail]  = useState({});
+  const [loaded,  setLoaded] = useState(false);
+  const [online,  setOnline] = useState(false);
+  const [year,    setYear]   = useState(today.getFullYear());
+  const [month,   setMonth]  = useState(today.getMonth());
+  const [sel,     setSel]    = useState(null);
+  const [admin,   setAdmin]  = useState(false);
+  const [loginOpen,setLogin] = useState(false);
+  const [pw,      setPw]     = useState('');
+  const [toast,   setToast]  = useState(null);
+  const esSrc = useRef(null);
+
+  /* SSE — 서버에서 실시간 데이터 수신 */
+  useEffect(() => {
+    const es = new EventSource('/api/events');
+    esSrc.current = es;
+    es.onopen    = () => setOnline(true);
+    es.onerror   = () => setOnline(false);
+    es.onmessage = e => {
+      try {
+        const d = JSON.parse(e.data);
+        setSets(d.sets || []);
+        setAvail(d.avail || {});
+        setLoaded(true);
+      } catch {}
+    };
+    return () => es.close();
+  }, []);
+
+  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null),2500); };
+
+  const getColor  = d => { for(const s of sets) if(s.events.some(e=>e.date===d)) return s.color; return null; };
+  const getEvents = d => sets.flatMap(s=>s.events.filter(e=>e.date===d).map(e=>({...e,setId:s.id,setName:s.name,color:s.color})));
+
+  const prevMonth = () => month===0 ? (setMonth(11),setYear(y=>y-1)) : setMonth(m=>m-1);
+  const nextMonth = () => month===11? (setMonth(0), setYear(y=>y+1)) : setMonth(m=>m+1);
+
+  /* Admin */
+  const login = async () => {
+    const r = await api.post('/api/admin/login',{password:pw});
+    if(r.ok){setAdmin(true);setLogin(false);setPw('');showToast('관리자 모드 활성화');}
+    else alert(r.message);
+  };
+
+  const addSet   = async (name,color) => { await api.post('/api/sets',{name,color}); };
+  const delSet   = async id => { if(confirm('이 세트를 삭제할까요?')) await api.delete(`/api/sets/${id}`); };
+  const addEvent = async (sid,date,title,desc) => { await api.post(`/api/sets/${sid}/events`,{date,title,desc}); };
+  const delEvent = async (sid,eid) => { await api.delete(`/api/sets/${sid}/events/${eid}`); };
+
+  const markAvail   = async (date,name,status) => { await api.post(`/api/avail/${date}`,{name,status}); showToast(`${name}님 응답 등록!`); };
+  const removeAvail = async (date,name) => { await api.delete(`/api/avail/${date}/${encodeURIComponent(name)}`); };
+
+  const selEvents = sel ? getEvents(sel) : [];
+  const selAvail  = sel ? (avail[sel] ?? []) : [];
+
+  if (!loaded) return (
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100vh',gap:12,color:'#999'}}>
+      <div className="pulse" style={{fontSize:32}}>📅</div>
+      <div style={{fontSize:14}}>서버에 연결하는 중...</div>
+    </div>
+  );
+
+  return (
+    <div style={{minHeight:'100vh',background:'#F2F0EC'}}>
+      {/* Header */}
+      <header style={{background:'#fff',borderBottom:'1px solid #E8E7E2',padding:'0 20px',height:54,display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:50,boxShadow:'0 1px 4px rgba(0,0,0,.05)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:22,lineHeight:1}}>📅</span>
+          <span style={{fontSize:16,fontWeight:700,letterSpacing:'-0.4px'}}>일정 조율</span>
+          <span style={{width:7,height:7,borderRadius:'50%',background:online?'#22C55E':'#EF4444',flexShrink:0,marginLeft:2}} title={online?'서버 연결됨':'연결 끊김'}/>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          {admin&&<span style={{fontSize:11,background:'#FEF2F2',color:'#991B1B',padding:'2px 10px',borderRadius:20,border:'1px solid #FECACA',fontWeight:600}}>관리자 모드</span>}
+          <button onClick={()=>admin?setAdmin(false):setLogin(true)}
+            style={{fontSize:12,padding:'6px 14px',border:'1px solid #DEDED8',borderRadius:9,background:'none',cursor:'pointer',color:'#555',fontWeight:500}}>
+            {admin?'관리자 종료':'관리자 로그인'}
+          </button>
+        </div>
+      </header>
+
+      {/* Toast */}
+      {toast&&(
+        <div className="fade-in" style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',background:'#1a1a1a',color:'#fff',padding:'10px 20px',borderRadius:12,fontSize:13,fontWeight:500,zIndex:300,boxShadow:'0 4px 20px rgba(0,0,0,.25)'}}>
+          {toast}
+        </div>
+      )}
+
+      {/* Login modal */}
+      {loginOpen&&(
+        <Overlay onClose={()=>{setLogin(false);setPw('');}}>
+          <div style={{fontSize:16,fontWeight:700,marginBottom:4}}>관리자 로그인</div>
+          <div style={{fontSize:13,color:'#999',marginBottom:16}}>일정 세트를 추가하고 관리할 수 있어요</div>
+          <input type="password" value={pw} onChange={e=>setPw(e.target.value)}
+            onKeyDown={e=>e.key==='Enter'&&login()}
+            placeholder="비밀번호 입력"
+            style={{width:'100%',padding:'9px 12px',border:'1px solid #DEDED8',borderRadius:9,fontSize:14,marginBottom:14}}
+            autoFocus/>
+          <Row><Btn ghost onClick={()=>{setLogin(false);setPw('');}}>취소</Btn><Btn onClick={login}>로그인</Btn></Row>
+        </Overlay>
+      )}
+
+      {/* Main */}
+      <main style={{maxWidth:980,margin:'0 auto',padding:'22px 16px',display:'flex',gap:20,alignItems:'flex-start',flexWrap:'wrap'}}>
+        <div style={{flex:'1 1 480px',minWidth:0,display:'flex',flexDirection:'column',gap:14}}>
+
+          <CalendarCard year={year} month={month} sets={sets} avail={avail}
+            selected={sel} onSelect={setSel} getColor={getColor}
+            onPrev={prevMonth} onNext={nextMonth}/>
+
+          {/* Legend */}
+          {sets.length>0&&(
+            <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+              {sets.map(s=>{const c=C[s.color];return(
+                <span key={s.id} style={{display:'flex',alignItems:'center',gap:5,background:c.bg,border:`1px solid ${c.border}`,borderRadius:20,padding:'3px 11px'}}>
+                  <span style={{width:7,height:7,borderRadius:'50%',background:c.accent,flexShrink:0}}/>
+                  <span style={{fontSize:12,color:c.text,fontWeight:600}}>{s.name}</span>
+                </span>
+              );})}
+            </div>
+          )}
+
+          {admin&&<AdminPanel sets={sets} addSet={addSet} delSet={delSet} addEvent={addEvent} delEvent={delEvent}/>}
+        </div>
+
+        {sel&&(
+          <div style={{width:300,flexShrink:0,position:'sticky',top:74}}>
+            <DayDetail dateStr={sel} events={selEvents} avail={selAvail}
+              onClose={()=>setSel(null)} onMark={markAvail} onRemove={removeAvail}/>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════ CalendarCard ══ */
+function CalendarCard({year,month,selected,onSelect,getColor,onPrev,onNext,avail}) {
+  const today    = new Date();
+  const firstDay = new Date(year,month,1).getDay();
+  const daysInM  = new Date(year,month+1,0).getDate();
+  const isToday  = d => today.getFullYear()===year&&today.getMonth()===month&&today.getDate()===d;
+  const cells    = [...Array(firstDay).fill(null),...Array.from({length:daysInM},(_,i)=>i+1)];
+
+  return (
+    <div style={{background:'#fff',borderRadius:16,border:'1px solid #E8E7E2',overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,.04)'}}>
+      <div style={{padding:'18px 20px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid #F0EFEA'}}>
+        <IBtn onClick={onPrev}><i className="ti ti-chevron-left"/></IBtn>
+        <span style={{fontSize:17,fontWeight:700,letterSpacing:'-0.3px'}}>{year}년 {MONTHS[month]}</span>
+        <IBtn onClick={onNext}><i className="ti ti-chevron-right"/></IBtn>
+      </div>
+      <div style={{padding:'10px 14px 16px'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',marginBottom:4}}>
+          {DOWS.map((d,i)=><div key={d} style={{textAlign:'center',padding:'5px 0',fontSize:11,fontWeight:700,color:i===0?'#EF4444':i===6?'#3B82F6':'#AAA'}}>{d}</div>)}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3}}>
+          {cells.map((d,i)=>{
+            if(!d) return <div key={`_${i}`}/>;
+            const mm=String(month+1).padStart(2,'0'),dd=String(d).padStart(2,'0');
+            const ds=`${year}-${mm}-${dd}`;
+            const color=getColor(ds),c=color?C[color]:null;
+            const isSel=selected===ds;
+            const da=avail[ds]??[];
+            const yc=da.filter(a=>a.status==='yes').length;
+            const nc=da.filter(a=>a.status==='no').length;
+            const dow=new Date(year,month,d).getDay();
+            return (
+              <div key={d} onClick={()=>onSelect(ds)} style={{
+                aspectRatio:'1',display:'flex',flexDirection:'column',alignItems:'center',
+                justifyContent:'center',borderRadius:10,cursor:'pointer',position:'relative',
+                background:isSel?(c?c.accent:'#1a1a1a'):(c?c.bg:'transparent'),
+                border:isToday(d)?'2px solid #1a1a1a':'2px solid transparent',
+                transition:'background .1s',userSelect:'none',
+              }}>
+                <span style={{fontSize:14,fontWeight:color?700:400,lineHeight:1,color:isSel?'#fff':c?c.text:dow===0?'#EF4444':dow===6?'#3B82F6':'#1a1a1a'}}>{d}</span>
+                {(yc>0||nc>0)&&<span style={{fontSize:9,color:isSel?'rgba(255,255,255,.8)':(c?c.text:'#999'),marginTop:1,lineHeight:1}}>{yc>0&&`✓${yc}`}{yc>0&&nc>0&&' '}{nc>0&&`✗${nc}`}</span>}
+                {color&&!isSel&&<span style={{position:'absolute',bottom:3,width:4,height:4,borderRadius:'50%',background:c.accent}}/>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════ DayDetail ══ */
+function DayDetail({dateStr,events,avail,onClose,onMark,onRemove}) {
+  const [name,setName] = useState('');
+  const [busy,setBusy] = useState(false);
+  const d = new Date(dateStr+'T00:00:00');
+  const label = `${d.getMonth()+1}월 ${d.getDate()}일 (${DOWS[d.getDay()]})`;
+  const yes = avail.filter(a=>a.status==='yes');
+  const no  = avail.filter(a=>a.status==='no');
+
+  const submit = async status => {
+    if(!name.trim()){alert('이름을 입력해주세요');return;}
+    setBusy(true);
+    await onMark(dateStr,name.trim(),status);
+    setName('');setBusy(false);
+  };
+
+  return (
+    <div className="fade-in" style={{background:'#fff',borderRadius:16,border:'1px solid #E8E7E2',overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,.04)'}}>
+      <div style={{padding:'16px 18px',borderBottom:'1px solid #F0EFEA',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div>
+          <div style={{fontSize:15,fontWeight:700,letterSpacing:'-0.3px'}}>{label}</div>
+          <div style={{fontSize:12,color:'#999',marginTop:2}}>{avail.length>0?`${avail.length}명 응답`:'아직 응답 없음'}</div>
+        </div>
+        <button onClick={onClose} style={{width:30,height:30,border:'1px solid #E8E7E2',borderRadius:8,background:'none',cursor:'pointer',fontSize:16,color:'#888',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+      </div>
+
+      <div style={{padding:'14px 16px',borderBottom:'1px solid #F0EFEA'}}>
+        {events.length===0
+          ?<div style={{fontSize:13,color:'#CCC',textAlign:'center',padding:'6px 0'}}>등록된 일정 없음</div>
+          :events.map(ev=>{const c=C[ev.color];return(
+            <div key={ev.id} style={{borderLeft:`3px solid ${c.accent}`,background:c.bg,borderRadius:'0 9px 9px 0',padding:'10px 13px',marginBottom:8}}>
+              <div style={{fontSize:14,fontWeight:700,color:c.text}}>{ev.title}</div>
+              <div style={{fontSize:11,color:c.text,opacity:.65,marginBottom:ev.desc?5:0}}>{ev.setName}</div>
+              {ev.desc&&<div style={{fontSize:13,color:'#444',whiteSpace:'pre-line',lineHeight:1.7,marginTop:4}}>{ev.desc}</div>}
+            </div>
+          );})}
+      </div>
+
+      <div style={{padding:'14px 16px 16px'}}>
+        <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>참여 가능 여부</div>
+
+        {yes.length>0&&(
+          <div style={{marginBottom:8}}>
+            <div style={{fontSize:11,fontWeight:700,color:'#166534',marginBottom:5}}>✓ 가능 ({yes.length}명)</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+              {yes.map(a=>(
+                <span key={a.name} onClick={()=>onRemove(dateStr,a.name)} title="클릭하여 삭제"
+                  style={{fontSize:12,background:'#F0FDF4',color:'#166534',padding:'3px 10px',borderRadius:20,border:'1px solid #BBF7D0',cursor:'pointer',display:'flex',alignItems:'center',gap:4,fontWeight:500}}>
+                  {a.name}<span style={{opacity:.45,fontSize:10,marginLeft:2}}>×</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        {no.length>0&&(
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:'#991B1B',marginBottom:5}}>✗ 불가 ({no.length}명)</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+              {no.map(a=>(
+                <span key={a.name} onClick={()=>onRemove(dateStr,a.name)} title="클릭하여 삭제"
+                  style={{fontSize:12,background:'#FEF2F2',color:'#991B1B',padding:'3px 10px',borderRadius:20,border:'1px solid #FECACA',cursor:'pointer',display:'flex',alignItems:'center',gap:4,fontWeight:500}}>
+                  {a.name}<span style={{opacity:.45,fontSize:10,marginLeft:2}}>×</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="이름을 입력하세요"
+          onKeyDown={e=>e.key==='Enter'&&submit('yes')} disabled={busy}
+          style={{width:'100%',padding:'9px 12px',border:'1px solid #DEDED8',borderRadius:9,fontSize:13,marginBottom:8}}/>
+        <div style={{display:'flex',gap:7}}>
+          <button onClick={()=>submit('yes')} disabled={busy}
+            style={{flex:1,padding:'9px',border:'1px solid #BBF7D0',borderRadius:9,background:'#F0FDF4',color:'#166534',cursor:'pointer',fontSize:13,fontWeight:700,opacity:busy?.6:1}}>
+            ✓ 가능
+          </button>
+          <button onClick={()=>submit('no')} disabled={busy}
+            style={{flex:1,padding:'9px',border:'1px solid #FECACA',borderRadius:9,background:'#FEF2F2',color:'#991B1B',cursor:'pointer',fontSize:13,fontWeight:700,opacity:busy?.6:1}}>
+            ✗ 불가
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════ AdminPanel ══ */
+function AdminPanel({sets,addSet,delSet,addEvent,delEvent}) {
+  const [sName,  setSName]  = useState('');
+  const [sColor, setSColor] = useState('red');
+  const [addingTo,setAdding]= useState(null);
+  const [evDate, setEvDate] = useState('');
+  const [evTitle,setEvTitle]= useState('');
+  const [evDesc, setEvDesc] = useState('');
+
+  const doAdd = async sid => {
+    if(!evDate||!evTitle.trim()){alert('날짜와 제목을 입력해주세요');return;}
+    await addEvent(sid,evDate,evTitle.trim(),evDesc.trim());
+    setEvDate('');setEvTitle('');setEvDesc('');setAdding(null);
+  };
+
+  return (
+    <div style={{background:'#fff',borderRadius:16,border:'1px solid #E8E7E2',padding:18,boxShadow:'0 2px 8px rgba(0,0,0,.04)'}}>
+      <div style={{fontSize:14,fontWeight:700,marginBottom:14,color:'#333',display:'flex',alignItems:'center',gap:7}}>
+        <i className="ti ti-settings" style={{fontSize:15,color:'#999'}}/>
+        일정 세트 관리
+      </div>
+
+      {sets.map(s=>{const c=C[s.color];return(
+        <div key={s.id} style={{marginBottom:10,border:'1px solid #E8E7E2',borderRadius:12,overflow:'hidden'}}>
+          <div style={{padding:'9px 13px',background:c.bg,display:'flex',alignItems:'center',gap:8}}>
+            <span style={{width:8,height:8,borderRadius:'50%',background:c.accent,flexShrink:0}}/>
+            <span style={{fontSize:13,fontWeight:700,color:c.text,flex:1}}>{s.name}</span>
+            <button onClick={()=>setAdding(addingTo===s.id?null:s.id)}
+              style={{fontSize:11,padding:'3px 9px',border:`1px solid ${c.border}`,borderRadius:6,background:'none',color:c.text,cursor:'pointer',fontWeight:600}}>
+              + 날짜 추가
+            </button>
+            <button onClick={()=>delSet(s.id)}
+              style={{width:26,height:26,border:'1px solid #FECACA',borderRadius:6,background:'none',color:'#991B1B',cursor:'pointer',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+          </div>
+
+          {s.events.length>0&&(
+            <div style={{padding:'8px 13px',display:'flex',flexDirection:'column',gap:6}}>
+              {s.events.map(ev=>{const dObj=new Date(ev.date+'T00:00:00');return(
+                <div key={ev.id} style={{display:'flex',alignItems:'flex-start',gap:9,fontSize:13}}>
+                  <span style={{background:c.bg,color:c.text,border:`1px solid ${c.border}`,borderRadius:6,padding:'2px 8px',fontSize:11,fontWeight:700,flexShrink:0,marginTop:1}}>
+                    {dObj.getMonth()+1}/{dObj.getDate()}
+                  </span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600}}>{ev.title}</div>
+                    {ev.desc&&<div style={{fontSize:11,color:'#999',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.desc}</div>}
+                  </div>
+                  <button onClick={()=>delEvent(s.id,ev.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#CCC',fontSize:16,padding:'0 2px',lineHeight:1,flexShrink:0}}>×</button>
+                </div>
+              );})}
+            </div>
+          )}
+
+          {addingTo===s.id&&(
+            <div style={{padding:'12px 13px',borderTop:'1px solid #F0EFEA',display:'flex',flexDirection:'column',gap:7}}>
+              <input type="date" value={evDate} onChange={e=>setEvDate(e.target.value)}
+                style={{padding:'8px 10px',border:'1px solid #DEDED8',borderRadius:8,fontSize:13,width:'100%'}}/>
+              <input type="text" value={evTitle} onChange={e=>setEvTitle(e.target.value)} placeholder="일정 제목"
+                style={{padding:'8px 10px',border:'1px solid #DEDED8',borderRadius:8,fontSize:13,width:'100%'}}/>
+              <textarea value={evDesc} onChange={e=>setEvDesc(e.target.value)}
+                placeholder="세부 설명 (장소, 시간, 준비물 등)"
+                style={{padding:'8px 10px',border:'1px solid #DEDED8',borderRadius:8,fontSize:13,width:'100%',resize:'vertical',minHeight:64,lineHeight:1.6}}/>
+              <Row><Btn onClick={()=>doAdd(s.id)}>추가</Btn><Btn ghost onClick={()=>setAdding(null)}>취소</Btn></Row>
+            </div>
+          )}
+        </div>
+      );})}
+
+      <div style={{border:'1px dashed #DEDED8',borderRadius:12,padding:14,marginTop:4}}>
+        <div style={{fontSize:12,fontWeight:700,color:'#888',marginBottom:10}}>새 세트 만들기</div>
+        <input value={sName} onChange={e=>setSName(e.target.value)} placeholder="세트 이름 (예: 7월 정기 세트)"
+          style={{width:'100%',padding:'8px 10px',border:'1px solid #DEDED8',borderRadius:8,fontSize:13,marginBottom:10}}/>
+        <div style={{display:'flex',gap:9,marginBottom:12}}>
+          {Object.entries(C).map(([k,c])=>(
+            <div key={k} onClick={()=>setSColor(k)} style={{width:28,height:28,borderRadius:'50%',background:c.accent,cursor:'pointer',
+              boxShadow:sColor===k?`0 0 0 3px #fff,0 0 0 5px ${c.accent}`:'none',transition:'box-shadow .15s'}}/>
+          ))}
+        </div>
+        <Btn onClick={()=>{if(!sName.trim())return;addSet(sName.trim(),sColor);setSName('');}}>세트 만들기</Btn>
+      </div>
+    </div>
+  );
+}
+
+/* ── 공용 컴포넌트 ── */
+function Overlay({children,onClose}){return(
+  <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:20}}>
+    <div style={{background:'#fff',borderRadius:16,padding:24,width:'100%',maxWidth:340,boxShadow:'0 24px 60px rgba(0,0,0,.2)'}}>{children}</div>
+  </div>
+);}
+function Row({children}){return <div style={{display:'flex',gap:8}}>{children}</div>;}
+function Btn({children,onClick,ghost}){return(
+  <button onClick={onClick} style={{flex:1,padding:'9px 14px',border:ghost?'1px solid #DEDED8':'none',borderRadius:9,background:ghost?'none':'#1a1a1a',color:ghost?'#666':'#fff',cursor:'pointer',fontSize:13,fontWeight:600}}>{children}</button>
+);}
+function IBtn({children,onClick}){return(
+  <button onClick={onClick} style={{width:34,height:34,border:'1px solid #E8E7E2',borderRadius:8,background:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,color:'#555'}}>{children}</button>
+);}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
