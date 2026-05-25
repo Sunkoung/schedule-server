@@ -14,23 +14,11 @@ const crypto  = require('crypto');
 const app      = express();
 const PORT     = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data.json');
-const ADMIN_PW  = process.env.ADMIN_PW || '1234'; // 환경변수로 변경 가능
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ── 데이터 유틸 ─────────────────────────────── */
-const uid = () => crypto.randomBytes(5).toString('hex');
-
-const defaultData = () => ({
-  sets: [{
-    id: uid(), name: '6월 정기 세트', color: 'red', events: [
-      { id: uid(), date: '2025-06-06', title: '6월 연습',     desc: '정기모임 전 사전 연습\n장소: 연습실 A\n시간: 오후 2시~5시' },
-      { id: uid(), date: '2025-06-14', title: '6월 정기모임', desc: '월례 정기모임\n장소: 커뮤니티센터 3층\n시간: 오후 3시~6시' },
-    ]
-  }],
-  avail: {}
-});
 
 function loadData() {
   if (!fs.existsSync(DATA_FILE)) return defaultData();
@@ -145,7 +133,6 @@ app.delete('/api/avail/:date/:name', (req, res) => {
 app.listen(PORT, () => {
   console.log('\n✅ 일정 조율 앱 서버 실행 중');
   console.log(`   📅 주소: http://localhost:${PORT}`);
-  console.log(`   🔑 관리자 비밀번호: ${ADMIN_PW}`);
   console.log('\n   같은 네트워크의 다른 기기에서 접속하려면:');
   console.log(`   http://[이 컴퓨터의 IP]:${PORT}\n`);
 });
