@@ -59,12 +59,6 @@ app.get('/api/events', (req, res) => {
 // 전체 데이터 조회
 app.get('/api/data', (req, res) => res.json(loadData()));
 
-// 관리자 인증
-app.post('/api/admin/login', (req, res) => {
-  if (req.body.password === ADMIN_PW) res.json({ ok: true });
-  else res.status(401).json({ ok: false, message: '비밀번호가 틀렸어요' });
-});
-
 /* 세트 CRUD */
 app.post('/api/sets', (req, res) => {
   const data = loadData();
