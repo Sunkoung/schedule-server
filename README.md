@@ -3,4 +3,5 @@
 
 # 주소
 https://schedule-server-1-080e.onrender.com/
-\n https://schedule-server-two.vercel.app/
+
+https://schedule-server-two.vercel.app/
