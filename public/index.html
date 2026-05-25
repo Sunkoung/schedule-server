@@ -11,21 +11,21 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Noto Sans KR',-apple-system,BlinkMacSystemFont,sans-serif;background:#F2F0EC;color:#1a1a1a;min-height:100vh}
-input,textarea,button,select{font-family:inherit}
+body{font-family:'Noto Sans KR',-apple-system,sans-serif;background:#F2F0EC;color:#1a1a1a;min-height:100vh}
+input,textarea,button{font-family:inherit}
 input:focus,textarea:focus{outline:2px solid #1a1a1a;outline-offset:-1px;border-color:transparent!important}
 button:active{transform:scale(.97)}
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#ddd;border-radius:3px}
-.fade-in{animation:fadeIn .2s ease}
-@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-.pulse{animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.fade{animation:fade .25s ease}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.spin{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const {useState,useEffect,useRef,useCallback} = React;
+const {useState,useEffect,useRef} = React;
 
 const C = {
   red:    {bg:'#FEF2F2',text:'#991B1B',accent:'#EF4444',border:'#FECACA'},
@@ -34,135 +34,225 @@ const C = {
   purple: {bg:'#FAF5FF',text:'#6B21A8',accent:'#A855F7',border:'#E9D5FF'},
   amber:  {bg:'#FFFBEB',text:'#92400E',accent:'#F59E0B',border:'#FDE68A'},
 };
-const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
-const DOWS   = ['일','월','화','수','목','금','토'];
+const MONTHS=['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+const DOWS=['일','월','화','수','목','금','토'];
 
-/* ── API helpers ── */
 const api = {
-  get:    (url)       => fetch(url).then(r=>r.json()),
-  post:   (url,body)  => fetch(url,{method:'POST',  headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json()),
-  delete: (url)       => fetch(url,{method:'DELETE'}).then(r=>r.json()),
+  get:    url      => fetch(url).then(r=>r.json()),
+  post:   (url,b)  => fetch(url,{method:'POST',  headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json()),
+  delete: url      => fetch(url,{method:'DELETE'}).then(r=>r.json()),
 };
 
-/* ══════════════════════════════════════ App ══ */
+/* ══════════════════ App (라우터) ══ */
 function App() {
+  const [page, setPage] = useState(() => {
+    const h = location.hash.slice(1);
+    const m = h.match(/^\/room\/([A-Z0-9]{6})$/);
+    return m ? { name:'room', code:m[1] } : { name:'landing' };
+  });
+
+  useEffect(() => {
+    const handler = () => {
+      const h = location.hash.slice(1);
+      const m = h.match(/^\/room\/([A-Z0-9]{6})$/);
+      setPage(m ? { name:'room', code:m[1] } : { name:'landing' });
+    };
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+
+  const goRoom = code => { location.hash = `/room/${code}`; };
+  const goHome = ()   => { location.hash = '/'; };
+
+  if (page.name === 'room') return <RoomPage code={page.code} onBack={goHome}/>;
+  return <LandingPage onEnter={goRoom}/>;
+}
+
+/* ══════════════════ Landing ══ */
+function LandingPage({ onEnter }) {
+  const [roomName, setRoomName] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [joining,  setJoining]  = useState(false);
+  const [err, setErr] = useState('');
+
+  const create = async () => {
+    if (!roomName.trim()) { setErr('방 이름을 입력해주세요'); return; }
+    setCreating(true); setErr('');
+    const r = await api.post('/api/rooms', { name: roomName.trim() });
+    setCreating(false);
+    if (r.code) onEnter(r.code);
+  };
+
+  const join = async () => {
+    const code = joinCode.trim().toUpperCase();
+    if (code.length !== 6) { setErr('방 코드는 6자리예요'); return; }
+    setJoining(true); setErr('');
+    const r = await api.get(`/api/rooms/${code}`);
+    setJoining(false);
+    if (r.error) setErr(r.error);
+    else onEnter(code);
+  };
+
+  return (
+    <div style={{minHeight:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'24px 16px',background:'#F2F0EC'}}>
+      <div className="fade" style={{width:'100%',maxWidth:420}}>
+        {/* Logo */}
+        <div style={{textAlign:'center',marginBottom:40}}>
+          <div style={{fontSize:48,marginBottom:12}}>📅</div>
+          <div style={{fontSize:26,fontWeight:700,letterSpacing:'-0.5px'}}>일정 조율</div>
+          <div style={{fontSize:14,color:'#888',marginTop:6}}>팀원들과 가능한 날짜를 함께 맞춰보세요</div>
+        </div>
+
+        {/* Create room */}
+        <div style={{background:'#fff',borderRadius:16,border:'1px solid #E8E7E2',padding:24,marginBottom:12,boxShadow:'0 2px 12px rgba(0,0,0,.05)'}}>
+          <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>새 방 만들기</div>
+          <div style={{fontSize:13,color:'#999',marginBottom:14}}>방을 만들면 6자리 코드가 생겨요</div>
+          <input value={roomName} onChange={e=>setRoomName(e.target.value)}
+            onKeyDown={e=>e.key==='Enter'&&create()}
+            placeholder="방 이름 (예: 6월 모임, 팀 A)"
+            style={{width:'100%',padding:'10px 12px',border:'1px solid #DEDED8',borderRadius:9,fontSize:14,marginBottom:10}}/>
+          <button onClick={create} disabled={creating}
+            style={{width:'100%',padding:'11px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:9,fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+            {creating ? <><span className="spin" style={{display:'inline-block'}}>⟳</span> 만드는 중...</> : '방 만들기 →'}
+          </button>
+        </div>
+
+        {/* Join room */}
+        <div style={{background:'#fff',borderRadius:16,border:'1px solid #E8E7E2',padding:24,boxShadow:'0 2px 12px rgba(0,0,0,.05)'}}>
+          <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>방 코드로 입장</div>
+          <div style={{fontSize:13,color:'#999',marginBottom:14}}>초대받은 6자리 코드를 입력하세요</div>
+          <input value={joinCode} onChange={e=>setJoinCode(e.target.value.toUpperCase())}
+            onKeyDown={e=>e.key==='Enter'&&join()}
+            placeholder="예: A7BK3M"
+            maxLength={6}
+            style={{width:'100%',padding:'10px 12px',border:'1px solid #DEDED8',borderRadius:9,fontSize:18,fontWeight:700,letterSpacing:'0.2em',textAlign:'center',marginBottom:10}}/>
+          <button onClick={join} disabled={joining}
+            style={{width:'100%',padding:'11px',background:'none',color:'#1a1a1a',border:'1.5px solid #1a1a1a',borderRadius:9,fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+            {joining ? <><span className="spin" style={{display:'inline-block'}}>⟳</span> 확인 중...</> : '입장하기'}
+          </button>
+        </div>
+
+        {err && <div style={{marginTop:12,textAlign:'center',fontSize:13,color:'#EF4444',fontWeight:500}}>{err}</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════ Room Page ══ */
+function RoomPage({ code, onBack }) {
   const today = new Date();
-  const [sets,    setSets]   = useState([]);
-  const [avail,   setAvail]  = useState({});
-  const [loaded,  setLoaded] = useState(false);
+  const [room,    setRoom]   = useState(null);
   const [online,  setOnline] = useState(false);
+  const [notFound,setNF]     = useState(false);
   const [year,    setYear]   = useState(today.getFullYear());
   const [month,   setMonth]  = useState(today.getMonth());
   const [sel,     setSel]    = useState(null);
   const [admin,   setAdmin]  = useState(false);
-  const [loginOpen,setLogin] = useState(false);
-  const [pw,      setPw]     = useState('');
   const [toast,   setToast]  = useState(null);
-  const esSrc = useRef(null);
+  const [copied,  setCopied] = useState(false);
 
-  /* SSE — 서버에서 실시간 데이터 수신 */
   useEffect(() => {
-    const es = new EventSource('/api/events');
-    esSrc.current = es;
+    const es = new EventSource(`/api/events/${code}`);
     es.onopen    = () => setOnline(true);
     es.onerror   = () => setOnline(false);
     es.onmessage = e => {
-      try {
-        const d = JSON.parse(e.data);
-        setSets(d.sets || []);
-        setAvail(d.avail || {});
-        setLoaded(true);
-      } catch {}
+      try { const d=JSON.parse(e.data); if(d.error){setNF(true);}else setRoom(d); }
+      catch {}
     };
     return () => es.close();
-  }, []);
+  }, [code]);
 
-  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null),2500); };
+  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null), 2500); };
+
+  const copyCode = () => {
+    navigator.clipboard?.writeText(code).catch(()=>{});
+    setCopied(true); setTimeout(()=>setCopied(false),2000);
+    showToast('코드 복사 완료!');
+  };
+
+  const sets  = room?.sets  ?? [];
+  const avail = room?.avail ?? {};
 
   const getColor  = d => { for(const s of sets) if(s.events.some(e=>e.date===d)) return s.color; return null; };
   const getEvents = d => sets.flatMap(s=>s.events.filter(e=>e.date===d).map(e=>({...e,setId:s.id,setName:s.name,color:s.color})));
 
-  const prevMonth = () => month===0 ? (setMonth(11),setYear(y=>y-1)) : setMonth(m=>m-1);
-  const nextMonth = () => month===11? (setMonth(0), setYear(y=>y+1)) : setMonth(m=>m+1);
+  const prevMonth = () => month===0?(setMonth(11),setYear(y=>y-1)):setMonth(m=>m-1);
+  const nextMonth = () => month===11?(setMonth(0),setYear(y=>y+1)):setMonth(m=>m+1);
 
-  /* Admin */
-  const login = async () => {
-    const r = await api.post('/api/admin/login',{password:pw});
-    if(r.ok){setAdmin(true);setLogin(false);setPw('');showToast('관리자 모드 활성화');}
-    else alert(r.message);
-  };
+  const addSet    = async (name,color) => { await api.post(`/api/rooms/${code}/sets`,{name,color}); };
+  const delSet    = async id           => { if(confirm('이 세트를 삭제할까요?')) await api.delete(`/api/rooms/${code}/sets/${id}`); };
+  const addEvent  = async (sid,d,t,dc) => { await api.post(`/api/rooms/${code}/sets/${sid}/events`,{date:d,title:t,desc:dc}); };
+  const delEvent  = async (sid,eid)    => { await api.delete(`/api/rooms/${code}/sets/${sid}/events/${eid}`); };
+  const markAvail = async (date,name,status) => { await api.post(`/api/rooms/${code}/avail/${date}`,{name,status}); showToast(`${name}님 응답 등록!`); };
+  const rmAvail   = async (date,name)  => { await api.delete(`/api/rooms/${code}/avail/${date}/${encodeURIComponent(name)}`); };
 
-  const addSet   = async (name,color) => { await api.post('/api/sets',{name,color}); };
-  const delSet   = async id => { if(confirm('이 세트를 삭제할까요?')) await api.delete(`/api/sets/${id}`); };
-  const addEvent = async (sid,date,title,desc) => { await api.post(`/api/sets/${sid}/events`,{date,title,desc}); };
-  const delEvent = async (sid,eid) => { await api.delete(`/api/sets/${sid}/events/${eid}`); };
-
-  const markAvail   = async (date,name,status) => { await api.post(`/api/avail/${date}`,{name,status}); showToast(`${name}님 응답 등록!`); };
-  const removeAvail = async (date,name) => { await api.delete(`/api/avail/${date}/${encodeURIComponent(name)}`); };
-
-  const selEvents = sel ? getEvents(sel) : [];
-  const selAvail  = sel ? (avail[sel] ?? []) : [];
-
-  if (!loaded) return (
-    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100vh',gap:12,color:'#999'}}>
-      <div className="pulse" style={{fontSize:32}}>📅</div>
-      <div style={{fontSize:14}}>서버에 연결하는 중...</div>
+  if (notFound) return (
+    <div style={{minHeight:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12}}>
+      <div style={{fontSize:40}}>🔍</div>
+      <div style={{fontSize:16,fontWeight:700}}>방을 찾을 수 없어요</div>
+      <div style={{fontSize:13,color:'#999'}}>코드 <b>{code}</b>에 해당하는 방이 없어요</div>
+      <button onClick={onBack} style={{marginTop:8,padding:'9px 20px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:9,cursor:'pointer',fontSize:13,fontWeight:600}}>← 홈으로</button>
     </div>
   );
+
+  if (!room) return (
+    <div style={{minHeight:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:10,color:'#999'}}>
+      <div className="spin" style={{fontSize:28,display:'block'}}>⟳</div>
+      <div style={{fontSize:14}}>방에 접속하는 중...</div>
+    </div>
+  );
+
+  const selEvents = sel ? getEvents(sel) : [];
+  const selAvail  = sel ? (avail[sel]??[]) : [];
 
   return (
     <div style={{minHeight:'100vh',background:'#F2F0EC'}}>
       {/* Header */}
-      <header style={{background:'#fff',borderBottom:'1px solid #E8E7E2',padding:'0 20px',height:54,display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:50,boxShadow:'0 1px 4px rgba(0,0,0,.05)'}}>
+      <header style={{background:'#fff',borderBottom:'1px solid #E8E7E2',padding:'0 16px',height:54,display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:50,boxShadow:'0 1px 4px rgba(0,0,0,.05)'}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <span style={{fontSize:22,lineHeight:1}}>📅</span>
-          <span style={{fontSize:16,fontWeight:700,letterSpacing:'-0.4px'}}>일정 조율</span>
-          <span style={{width:7,height:7,borderRadius:'50%',background:online?'#22C55E':'#EF4444',flexShrink:0,marginLeft:2}} title={online?'서버 연결됨':'연결 끊김'}/>
+          <button onClick={onBack} style={{width:32,height:32,border:'1px solid #E8E7E2',borderRadius:8,background:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>←</button>
+          <div>
+            <div style={{fontSize:14,fontWeight:700,letterSpacing:'-0.3px',lineHeight:1.2}}>{room.name}</div>
+            <div style={{fontSize:11,color:'#999',display:'flex',alignItems:'center',gap:4}}>
+              <span style={{width:6,height:6,borderRadius:'50%',background:online?'#22C55E':'#EF4444',display:'inline-block'}}/>
+              {online?'연결됨':'연결 끊김'}
+            </div>
+          </div>
         </div>
+
+        {/* Room code badge */}
         <div style={{display:'flex',alignItems:'center',gap:8}}>
-          {admin&&<span style={{fontSize:11,background:'#FEF2F2',color:'#991B1B',padding:'2px 10px',borderRadius:20,border:'1px solid #FECACA',fontWeight:600}}>관리자 모드</span>}
-          <button onClick={()=>admin?setAdmin(false):setLogin(true)}
-            style={{fontSize:12,padding:'6px 14px',border:'1px solid #DEDED8',borderRadius:9,background:'none',cursor:'pointer',color:'#555',fontWeight:500}}>
-            {admin?'관리자 종료':'관리자 로그인'}
+          <button onClick={copyCode}
+            style={{display:'flex',alignItems:'center',gap:6,padding:'5px 12px',background:copied?'#F0FDF4':'#F7F6F2',border:`1px solid ${copied?'#BBF7D0':'#E8E7E2'}`,borderRadius:9,cursor:'pointer',transition:'all .2s'}}>
+            <span style={{fontSize:13,fontWeight:700,letterSpacing:'0.12em',color:copied?'#166534':'#1a1a1a'}}>{code}</span>
+            <i className={`ti ti-${copied?'check':'copy'}`} style={{fontSize:14,color:copied?'#166534':'#888'}}/>
+          </button>
+          <button onClick={()=>setAdmin(a=>!a)}
+            style={{padding:'6px 12px',border:'1px solid #DEDED8',borderRadius:9,background:admin?'#1a1a1a':'none',color:admin?'#fff':'#555',cursor:'pointer',fontSize:12,fontWeight:600}}>
+            {admin?'✓ 관리':'관리'}
           </button>
         </div>
       </header>
 
       {/* Toast */}
       {toast&&(
-        <div className="fade-in" style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',background:'#1a1a1a',color:'#fff',padding:'10px 20px',borderRadius:12,fontSize:13,fontWeight:500,zIndex:300,boxShadow:'0 4px 20px rgba(0,0,0,.25)'}}>
+        <div className="fade" style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',background:'#1a1a1a',color:'#fff',padding:'10px 20px',borderRadius:12,fontSize:13,fontWeight:500,zIndex:300,boxShadow:'0 4px 20px rgba(0,0,0,.25)',whiteSpace:'nowrap'}}>
           {toast}
         </div>
       )}
 
-      {/* Login modal */}
-      {loginOpen&&(
-        <Overlay onClose={()=>{setLogin(false);setPw('');}}>
-          <div style={{fontSize:16,fontWeight:700,marginBottom:4}}>관리자 로그인</div>
-          <div style={{fontSize:13,color:'#999',marginBottom:16}}>일정 세트를 추가하고 관리할 수 있어요</div>
-          <input type="password" value={pw} onChange={e=>setPw(e.target.value)}
-            onKeyDown={e=>e.key==='Enter'&&login()}
-            placeholder="비밀번호 입력"
-            style={{width:'100%',padding:'9px 12px',border:'1px solid #DEDED8',borderRadius:9,fontSize:14,marginBottom:14}}
-            autoFocus/>
-          <Row><Btn ghost onClick={()=>{setLogin(false);setPw('');}}>취소</Btn><Btn onClick={login}>로그인</Btn></Row>
-        </Overlay>
-      )}
-
-      {/* Main */}
-      <main style={{maxWidth:980,margin:'0 auto',padding:'22px 16px',display:'flex',gap:20,alignItems:'flex-start',flexWrap:'wrap'}}>
-        <div style={{flex:'1 1 480px',minWidth:0,display:'flex',flexDirection:'column',gap:14}}>
-
+      <main style={{maxWidth:980,margin:'0 auto',padding:'20px 14px',display:'flex',gap:18,alignItems:'flex-start',flexWrap:'wrap'}}>
+        <div style={{flex:'1 1 460px',minWidth:0,display:'flex',flexDirection:'column',gap:12}}>
           <CalendarCard year={year} month={month} sets={sets} avail={avail}
             selected={sel} onSelect={setSel} getColor={getColor}
             onPrev={prevMonth} onNext={nextMonth}/>
 
-          {/* Legend */}
           {sets.length>0&&(
             <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
               {sets.map(s=>{const c=C[s.color];return(
                 <span key={s.id} style={{display:'flex',alignItems:'center',gap:5,background:c.bg,border:`1px solid ${c.border}`,borderRadius:20,padding:'3px 11px'}}>
-                  <span style={{width:7,height:7,borderRadius:'50%',background:c.accent,flexShrink:0}}/>
+                  <span style={{width:7,height:7,borderRadius:'50%',background:c.accent}}/>
                   <span style={{fontSize:12,color:c.text,fontWeight:600}}>{s.name}</span>
                 </span>
               );})}
@@ -173,9 +263,9 @@ function App() {
         </div>
 
         {sel&&(
-          <div style={{width:300,flexShrink:0,position:'sticky',top:74}}>
+          <div style={{width:294,flexShrink:0,position:'sticky',top:72}}>
             <DayDetail dateStr={sel} events={selEvents} avail={selAvail}
-              onClose={()=>setSel(null)} onMark={markAvail} onRemove={removeAvail}/>
+              onClose={()=>setSel(null)} onMark={markAvail} onRemove={rmAvail}/>
           </div>
         )}
       </main>
@@ -183,45 +273,33 @@ function App() {
   );
 }
 
-/* ══════════════════════════════════════ CalendarCard ══ */
+/* ══════════════════ CalendarCard ══ */
 function CalendarCard({year,month,selected,onSelect,getColor,onPrev,onNext,avail}) {
-  const today    = new Date();
-  const firstDay = new Date(year,month,1).getDay();
-  const daysInM  = new Date(year,month+1,0).getDate();
-  const isToday  = d => today.getFullYear()===year&&today.getMonth()===month&&today.getDate()===d;
-  const cells    = [...Array(firstDay).fill(null),...Array.from({length:daysInM},(_,i)=>i+1)];
-
+  const today=new Date(), firstDay=new Date(year,month,1).getDay(), daysInM=new Date(year,month+1,0).getDate();
+  const isToday=d=>today.getFullYear()===year&&today.getMonth()===month&&today.getDate()===d;
+  const cells=[...Array(firstDay).fill(null),...Array.from({length:daysInM},(_,i)=>i+1)];
   return (
     <div style={{background:'#fff',borderRadius:16,border:'1px solid #E8E7E2',overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,.04)'}}>
-      <div style={{padding:'18px 20px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid #F0EFEA'}}>
+      <div style={{padding:'16px 18px 12px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid #F0EFEA'}}>
         <IBtn onClick={onPrev}><i className="ti ti-chevron-left"/></IBtn>
-        <span style={{fontSize:17,fontWeight:700,letterSpacing:'-0.3px'}}>{year}년 {MONTHS[month]}</span>
+        <span style={{fontSize:16,fontWeight:700}}>{year}년 {MONTHS[month]}</span>
         <IBtn onClick={onNext}><i className="ti ti-chevron-right"/></IBtn>
       </div>
-      <div style={{padding:'10px 14px 16px'}}>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',marginBottom:4}}>
+      <div style={{padding:'8px 12px 14px'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',marginBottom:2}}>
           {DOWS.map((d,i)=><div key={d} style={{textAlign:'center',padding:'5px 0',fontSize:11,fontWeight:700,color:i===0?'#EF4444':i===6?'#3B82F6':'#AAA'}}>{d}</div>)}
         </div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
           {cells.map((d,i)=>{
             if(!d) return <div key={`_${i}`}/>;
             const mm=String(month+1).padStart(2,'0'),dd=String(d).padStart(2,'0');
             const ds=`${year}-${mm}-${dd}`;
-            const color=getColor(ds),c=color?C[color]:null;
-            const isSel=selected===ds;
-            const da=avail[ds]??[];
-            const yc=da.filter(a=>a.status==='yes').length;
-            const nc=da.filter(a=>a.status==='no').length;
+            const color=getColor(ds),c=color?C[color]:null, isSel=selected===ds;
+            const da=avail[ds]??[], yc=da.filter(a=>a.status==='yes').length, nc=da.filter(a=>a.status==='no').length;
             const dow=new Date(year,month,d).getDay();
-            return (
-              <div key={d} onClick={()=>onSelect(ds)} style={{
-                aspectRatio:'1',display:'flex',flexDirection:'column',alignItems:'center',
-                justifyContent:'center',borderRadius:10,cursor:'pointer',position:'relative',
-                background:isSel?(c?c.accent:'#1a1a1a'):(c?c.bg:'transparent'),
-                border:isToday(d)?'2px solid #1a1a1a':'2px solid transparent',
-                transition:'background .1s',userSelect:'none',
-              }}>
-                <span style={{fontSize:14,fontWeight:color?700:400,lineHeight:1,color:isSel?'#fff':c?c.text:dow===0?'#EF4444':dow===6?'#3B82F6':'#1a1a1a'}}>{d}</span>
+            return(
+              <div key={d} onClick={()=>onSelect(ds)} style={{aspectRatio:'1',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',borderRadius:9,cursor:'pointer',position:'relative',background:isSel?(c?c.accent:'#1a1a1a'):(c?c.bg:'transparent'),border:isToday(d)?'2px solid #1a1a1a':'2px solid transparent',transition:'background .1s',userSelect:'none'}}>
+                <span style={{fontSize:13,fontWeight:color?700:400,lineHeight:1,color:isSel?'#fff':c?c.text:dow===0?'#EF4444':dow===6?'#3B82F6':'#1a1a1a'}}>{d}</span>
                 {(yc>0||nc>0)&&<span style={{fontSize:9,color:isSel?'rgba(255,255,255,.8)':(c?c.text:'#999'),marginTop:1,lineHeight:1}}>{yc>0&&`✓${yc}`}{yc>0&&nc>0&&' '}{nc>0&&`✗${nc}`}</span>}
                 {color&&!isSel&&<span style={{position:'absolute',bottom:3,width:4,height:4,borderRadius:'50%',background:c.accent}}/>}
               </div>
@@ -233,167 +311,125 @@ function CalendarCard({year,month,selected,onSelect,getColor,onPrev,onNext,avail
   );
 }
 
-/* ══════════════════════════════════════ DayDetail ══ */
+/* ══════════════════ DayDetail ══ */
 function DayDetail({dateStr,events,avail,onClose,onMark,onRemove}) {
-  const [name,setName] = useState('');
-  const [busy,setBusy] = useState(false);
-  const d = new Date(dateStr+'T00:00:00');
-  const label = `${d.getMonth()+1}월 ${d.getDate()}일 (${DOWS[d.getDay()]})`;
-  const yes = avail.filter(a=>a.status==='yes');
-  const no  = avail.filter(a=>a.status==='no');
-
-  const submit = async status => {
+  const [name,setName]=useState(''), [busy,setBusy]=useState(false);
+  const d=new Date(dateStr+'T00:00:00');
+  const label=`${d.getMonth()+1}월 ${d.getDate()}일 (${DOWS[d.getDay()]})`;
+  const yes=avail.filter(a=>a.status==='yes'), no=avail.filter(a=>a.status==='no');
+  const submit=async status=>{
     if(!name.trim()){alert('이름을 입력해주세요');return;}
-    setBusy(true);
-    await onMark(dateStr,name.trim(),status);
-    setName('');setBusy(false);
+    setBusy(true); await onMark(dateStr,name.trim(),status); setName(''); setBusy(false);
   };
-
-  return (
-    <div className="fade-in" style={{background:'#fff',borderRadius:16,border:'1px solid #E8E7E2',overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,.04)'}}>
-      <div style={{padding:'16px 18px',borderBottom:'1px solid #F0EFEA',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+  return(
+    <div className="fade" style={{background:'#fff',borderRadius:16,border:'1px solid #E8E7E2',overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,.04)'}}>
+      <div style={{padding:'14px 16px',borderBottom:'1px solid #F0EFEA',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
         <div>
-          <div style={{fontSize:15,fontWeight:700,letterSpacing:'-0.3px'}}>{label}</div>
+          <div style={{fontSize:15,fontWeight:700}}>{label}</div>
           <div style={{fontSize:12,color:'#999',marginTop:2}}>{avail.length>0?`${avail.length}명 응답`:'아직 응답 없음'}</div>
         </div>
-        <button onClick={onClose} style={{width:30,height:30,border:'1px solid #E8E7E2',borderRadius:8,background:'none',cursor:'pointer',fontSize:16,color:'#888',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+        <button onClick={onClose} style={{width:28,height:28,border:'1px solid #E8E7E2',borderRadius:7,background:'none',cursor:'pointer',fontSize:16,color:'#888',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
       </div>
-
-      <div style={{padding:'14px 16px',borderBottom:'1px solid #F0EFEA'}}>
+      <div style={{padding:'12px 14px',borderBottom:'1px solid #F0EFEA'}}>
         {events.length===0
-          ?<div style={{fontSize:13,color:'#CCC',textAlign:'center',padding:'6px 0'}}>등록된 일정 없음</div>
+          ?<div style={{fontSize:13,color:'#CCC',textAlign:'center',padding:'4px 0'}}>등록된 일정 없음</div>
           :events.map(ev=>{const c=C[ev.color];return(
-            <div key={ev.id} style={{borderLeft:`3px solid ${c.accent}`,background:c.bg,borderRadius:'0 9px 9px 0',padding:'10px 13px',marginBottom:8}}>
+            <div key={ev.id} style={{borderLeft:`3px solid ${c.accent}`,background:c.bg,borderRadius:'0 8px 8px 0',padding:'9px 12px',marginBottom:7}}>
               <div style={{fontSize:14,fontWeight:700,color:c.text}}>{ev.title}</div>
-              <div style={{fontSize:11,color:c.text,opacity:.65,marginBottom:ev.desc?5:0}}>{ev.setName}</div>
-              {ev.desc&&<div style={{fontSize:13,color:'#444',whiteSpace:'pre-line',lineHeight:1.7,marginTop:4}}>{ev.desc}</div>}
+              <div style={{fontSize:11,color:c.text,opacity:.6,marginBottom:ev.desc?4:0}}>{ev.setName}</div>
+              {ev.desc&&<div style={{fontSize:13,color:'#444',whiteSpace:'pre-line',lineHeight:1.7,marginTop:3}}>{ev.desc}</div>}
             </div>
           );})}
       </div>
-
-      <div style={{padding:'14px 16px 16px'}}>
-        <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>참여 가능 여부</div>
-
-        {yes.length>0&&(
-          <div style={{marginBottom:8}}>
-            <div style={{fontSize:11,fontWeight:700,color:'#166534',marginBottom:5}}>✓ 가능 ({yes.length}명)</div>
-            <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
-              {yes.map(a=>(
-                <span key={a.name} onClick={()=>onRemove(dateStr,a.name)} title="클릭하여 삭제"
-                  style={{fontSize:12,background:'#F0FDF4',color:'#166534',padding:'3px 10px',borderRadius:20,border:'1px solid #BBF7D0',cursor:'pointer',display:'flex',alignItems:'center',gap:4,fontWeight:500}}>
-                  {a.name}<span style={{opacity:.45,fontSize:10,marginLeft:2}}>×</span>
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-        {no.length>0&&(
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:11,fontWeight:700,color:'#991B1B',marginBottom:5}}>✗ 불가 ({no.length}명)</div>
-            <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
-              {no.map(a=>(
-                <span key={a.name} onClick={()=>onRemove(dateStr,a.name)} title="클릭하여 삭제"
-                  style={{fontSize:12,background:'#FEF2F2',color:'#991B1B',padding:'3px 10px',borderRadius:20,border:'1px solid #FECACA',cursor:'pointer',display:'flex',alignItems:'center',gap:4,fontWeight:500}}>
-                  {a.name}<span style={{opacity:.45,fontSize:10,marginLeft:2}}>×</span>
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
+      <div style={{padding:'12px 14px 14px'}}>
+        <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>참여 가능 여부</div>
+        {yes.length>0&&<div style={{marginBottom:7}}>
+          <div style={{fontSize:11,fontWeight:700,color:'#166534',marginBottom:5}}>✓ 가능 ({yes.length}명)</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:5}}>{yes.map(a=>(
+            <span key={a.name} onClick={()=>onRemove(dateStr,a.name)} title="클릭하여 삭제"
+              style={{fontSize:12,background:'#F0FDF4',color:'#166534',padding:'3px 9px',borderRadius:20,border:'1px solid #BBF7D0',cursor:'pointer',display:'flex',alignItems:'center',gap:3,fontWeight:500}}>
+              {a.name}<span style={{opacity:.4,fontSize:10}}>×</span></span>
+          ))}</div>
+        </div>}
+        {no.length>0&&<div style={{marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:700,color:'#991B1B',marginBottom:5}}>✗ 불가 ({no.length}명)</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:5}}>{no.map(a=>(
+            <span key={a.name} onClick={()=>onRemove(dateStr,a.name)} title="클릭하여 삭제"
+              style={{fontSize:12,background:'#FEF2F2',color:'#991B1B',padding:'3px 9px',borderRadius:20,border:'1px solid #FECACA',cursor:'pointer',display:'flex',alignItems:'center',gap:3,fontWeight:500}}>
+              {a.name}<span style={{opacity:.4,fontSize:10}}>×</span></span>
+          ))}</div>
+        </div>}
         <input value={name} onChange={e=>setName(e.target.value)} placeholder="이름을 입력하세요"
           onKeyDown={e=>e.key==='Enter'&&submit('yes')} disabled={busy}
-          style={{width:'100%',padding:'9px 12px',border:'1px solid #DEDED8',borderRadius:9,fontSize:13,marginBottom:8}}/>
-        <div style={{display:'flex',gap:7}}>
-          <button onClick={()=>submit('yes')} disabled={busy}
-            style={{flex:1,padding:'9px',border:'1px solid #BBF7D0',borderRadius:9,background:'#F0FDF4',color:'#166534',cursor:'pointer',fontSize:13,fontWeight:700,opacity:busy?.6:1}}>
-            ✓ 가능
-          </button>
-          <button onClick={()=>submit('no')} disabled={busy}
-            style={{flex:1,padding:'9px',border:'1px solid #FECACA',borderRadius:9,background:'#FEF2F2',color:'#991B1B',cursor:'pointer',fontSize:13,fontWeight:700,opacity:busy?.6:1}}>
-            ✗ 불가
-          </button>
+          style={{width:'100%',padding:'8px 11px',border:'1px solid #DEDED8',borderRadius:8,fontSize:13,marginBottom:7}}/>
+        <div style={{display:'flex',gap:6}}>
+          <button onClick={()=>submit('yes')} disabled={busy} style={{flex:1,padding:'8px',border:'1px solid #BBF7D0',borderRadius:8,background:'#F0FDF4',color:'#166634',cursor:'pointer',fontSize:13,fontWeight:700}}>✓ 가능</button>
+          <button onClick={()=>submit('no')}  disabled={busy} style={{flex:1,padding:'8px',border:'1px solid #FECACA',borderRadius:8,background:'#FEF2F2',color:'#991B1B',cursor:'pointer',fontSize:13,fontWeight:700}}>✗ 불가</button>
         </div>
       </div>
     </div>
   );
 }
 
-/* ══════════════════════════════════════ AdminPanel ══ */
+/* ══════════════════ AdminPanel ══ */
 function AdminPanel({sets,addSet,delSet,addEvent,delEvent}) {
-  const [sName,  setSName]  = useState('');
-  const [sColor, setSColor] = useState('red');
-  const [addingTo,setAdding]= useState(null);
-  const [evDate, setEvDate] = useState('');
-  const [evTitle,setEvTitle]= useState('');
-  const [evDesc, setEvDesc] = useState('');
-
-  const doAdd = async sid => {
+  const [sName,setSName]=useState(''), [sColor,setSColor]=useState('red');
+  const [addingTo,setAdding]=useState(null);
+  const [evDate,setEvDate]=useState(''), [evTitle,setEvTitle]=useState(''), [evDesc,setEvDesc]=useState('');
+  const doAdd=async sid=>{
     if(!evDate||!evTitle.trim()){alert('날짜와 제목을 입력해주세요');return;}
     await addEvent(sid,evDate,evTitle.trim(),evDesc.trim());
     setEvDate('');setEvTitle('');setEvDesc('');setAdding(null);
   };
-
-  return (
-    <div style={{background:'#fff',borderRadius:16,border:'1px solid #E8E7E2',padding:18,boxShadow:'0 2px 8px rgba(0,0,0,.04)'}}>
-      <div style={{fontSize:14,fontWeight:700,marginBottom:14,color:'#333',display:'flex',alignItems:'center',gap:7}}>
-        <i className="ti ti-settings" style={{fontSize:15,color:'#999'}}/>
-        일정 세트 관리
+  return(
+    <div style={{background:'#fff',borderRadius:16,border:'1px solid #E8E7E2',padding:16,boxShadow:'0 2px 8px rgba(0,0,0,.04)'}}>
+      <div style={{fontSize:14,fontWeight:700,marginBottom:12,display:'flex',alignItems:'center',gap:6}}>
+        <i className="ti ti-settings" style={{fontSize:14,color:'#999'}}/>일정 세트 관리
       </div>
-
       {sets.map(s=>{const c=C[s.color];return(
-        <div key={s.id} style={{marginBottom:10,border:'1px solid #E8E7E2',borderRadius:12,overflow:'hidden'}}>
-          <div style={{padding:'9px 13px',background:c.bg,display:'flex',alignItems:'center',gap:8}}>
+        <div key={s.id} style={{marginBottom:9,border:'1px solid #E8E7E2',borderRadius:11,overflow:'hidden'}}>
+          <div style={{padding:'8px 11px',background:c.bg,display:'flex',alignItems:'center',gap:7}}>
             <span style={{width:8,height:8,borderRadius:'50%',background:c.accent,flexShrink:0}}/>
             <span style={{fontSize:13,fontWeight:700,color:c.text,flex:1}}>{s.name}</span>
             <button onClick={()=>setAdding(addingTo===s.id?null:s.id)}
-              style={{fontSize:11,padding:'3px 9px',border:`1px solid ${c.border}`,borderRadius:6,background:'none',color:c.text,cursor:'pointer',fontWeight:600}}>
-              + 날짜 추가
-            </button>
+              style={{fontSize:11,padding:'3px 8px',border:`1px solid ${c.border}`,borderRadius:5,background:'none',color:c.text,cursor:'pointer',fontWeight:600}}>+ 날짜</button>
             <button onClick={()=>delSet(s.id)}
-              style={{width:26,height:26,border:'1px solid #FECACA',borderRadius:6,background:'none',color:'#991B1B',cursor:'pointer',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+              style={{width:24,height:24,border:'1px solid #FECACA',borderRadius:5,background:'none',color:'#991B1B',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
           </div>
-
-          {s.events.length>0&&(
-            <div style={{padding:'8px 13px',display:'flex',flexDirection:'column',gap:6}}>
-              {s.events.map(ev=>{const dObj=new Date(ev.date+'T00:00:00');return(
-                <div key={ev.id} style={{display:'flex',alignItems:'flex-start',gap:9,fontSize:13}}>
-                  <span style={{background:c.bg,color:c.text,border:`1px solid ${c.border}`,borderRadius:6,padding:'2px 8px',fontSize:11,fontWeight:700,flexShrink:0,marginTop:1}}>
-                    {dObj.getMonth()+1}/{dObj.getDate()}
-                  </span>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:600}}>{ev.title}</div>
-                    {ev.desc&&<div style={{fontSize:11,color:'#999',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.desc}</div>}
-                  </div>
-                  <button onClick={()=>delEvent(s.id,ev.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#CCC',fontSize:16,padding:'0 2px',lineHeight:1,flexShrink:0}}>×</button>
+          {s.events.length>0&&<div style={{padding:'7px 11px',display:'flex',flexDirection:'column',gap:5}}>
+            {s.events.map(ev=>{const dObj=new Date(ev.date+'T00:00:00');return(
+              <div key={ev.id} style={{display:'flex',alignItems:'flex-start',gap:8,fontSize:13}}>
+                <span style={{background:c.bg,color:c.text,border:`1px solid ${c.border}`,borderRadius:5,padding:'1px 7px',fontSize:11,fontWeight:700,flexShrink:0}}>
+                  {dObj.getMonth()+1}/{dObj.getDate()}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:600}}>{ev.title}</div>
+                  {ev.desc&&<div style={{fontSize:11,color:'#999',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.desc}</div>}
                 </div>
-              );})}
+                <button onClick={()=>delEvent(s.id,ev.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#CCC',fontSize:15,padding:0,lineHeight:1,flexShrink:0}}>×</button>
+              </div>
+            );})}
+          </div>}
+          {addingTo===s.id&&<div style={{padding:'10px 11px',borderTop:'1px solid #F0EFEA',display:'flex',flexDirection:'column',gap:6}}>
+            <input type="date" value={evDate} onChange={e=>setEvDate(e.target.value)}
+              style={{padding:'7px 9px',border:'1px solid #DEDED8',borderRadius:7,fontSize:13,width:'100%'}}/>
+            <input type="text" value={evTitle} onChange={e=>setEvTitle(e.target.value)} placeholder="일정 제목"
+              style={{padding:'7px 9px',border:'1px solid #DEDED8',borderRadius:7,fontSize:13,width:'100%'}}/>
+            <textarea value={evDesc} onChange={e=>setEvDesc(e.target.value)} placeholder="세부 설명 (장소, 시간, 준비물 등)"
+              style={{padding:'7px 9px',border:'1px solid #DEDED8',borderRadius:7,fontSize:13,width:'100%',resize:'vertical',minHeight:56,lineHeight:1.6}}/>
+            <div style={{display:'flex',gap:6}}>
+              <Btn onClick={()=>doAdd(s.id)}>추가</Btn>
+              <Btn ghost onClick={()=>setAdding(null)}>취소</Btn>
             </div>
-          )}
-
-          {addingTo===s.id&&(
-            <div style={{padding:'12px 13px',borderTop:'1px solid #F0EFEA',display:'flex',flexDirection:'column',gap:7}}>
-              <input type="date" value={evDate} onChange={e=>setEvDate(e.target.value)}
-                style={{padding:'8px 10px',border:'1px solid #DEDED8',borderRadius:8,fontSize:13,width:'100%'}}/>
-              <input type="text" value={evTitle} onChange={e=>setEvTitle(e.target.value)} placeholder="일정 제목"
-                style={{padding:'8px 10px',border:'1px solid #DEDED8',borderRadius:8,fontSize:13,width:'100%'}}/>
-              <textarea value={evDesc} onChange={e=>setEvDesc(e.target.value)}
-                placeholder="세부 설명 (장소, 시간, 준비물 등)"
-                style={{padding:'8px 10px',border:'1px solid #DEDED8',borderRadius:8,fontSize:13,width:'100%',resize:'vertical',minHeight:64,lineHeight:1.6}}/>
-              <Row><Btn onClick={()=>doAdd(s.id)}>추가</Btn><Btn ghost onClick={()=>setAdding(null)}>취소</Btn></Row>
-            </div>
-          )}
+          </div>}
         </div>
       );})}
-
-      <div style={{border:'1px dashed #DEDED8',borderRadius:12,padding:14,marginTop:4}}>
-        <div style={{fontSize:12,fontWeight:700,color:'#888',marginBottom:10}}>새 세트 만들기</div>
-        <input value={sName} onChange={e=>setSName(e.target.value)} placeholder="세트 이름 (예: 7월 정기 세트)"
-          style={{width:'100%',padding:'8px 10px',border:'1px solid #DEDED8',borderRadius:8,fontSize:13,marginBottom:10}}/>
-        <div style={{display:'flex',gap:9,marginBottom:12}}>
+      <div style={{border:'1px dashed #DEDED8',borderRadius:11,padding:13}}>
+        <div style={{fontSize:12,fontWeight:700,color:'#888',marginBottom:9}}>새 세트 만들기</div>
+        <input value={sName} onChange={e=>setSName(e.target.value)} placeholder="세트 이름 (예: 6월 정기 세트)"
+          style={{width:'100%',padding:'7px 9px',border:'1px solid #DEDED8',borderRadius:7,fontSize:13,marginBottom:9}}/>
+        <div style={{display:'flex',gap:8,marginBottom:11}}>
           {Object.entries(C).map(([k,c])=>(
-            <div key={k} onClick={()=>setSColor(k)} style={{width:28,height:28,borderRadius:'50%',background:c.accent,cursor:'pointer',
-              boxShadow:sColor===k?`0 0 0 3px #fff,0 0 0 5px ${c.accent}`:'none',transition:'box-shadow .15s'}}/>
+            <div key={k} onClick={()=>setSColor(k)} style={{width:26,height:26,borderRadius:'50%',background:c.accent,cursor:'pointer',boxShadow:sColor===k?`0 0 0 3px #fff,0 0 0 5px ${c.accent}`:'none',transition:'box-shadow .15s'}}/>
           ))}
         </div>
         <Btn onClick={()=>{if(!sName.trim())return;addSet(sName.trim(),sColor);setSName('');}}>세트 만들기</Btn>
@@ -402,18 +438,11 @@ function AdminPanel({sets,addSet,delSet,addEvent,delEvent}) {
   );
 }
 
-/* ── 공용 컴포넌트 ── */
-function Overlay({children,onClose}){return(
-  <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:20}}>
-    <div style={{background:'#fff',borderRadius:16,padding:24,width:'100%',maxWidth:340,boxShadow:'0 24px 60px rgba(0,0,0,.2)'}}>{children}</div>
-  </div>
-);}
-function Row({children}){return <div style={{display:'flex',gap:8}}>{children}</div>;}
 function Btn({children,onClick,ghost}){return(
-  <button onClick={onClick} style={{flex:1,padding:'9px 14px',border:ghost?'1px solid #DEDED8':'none',borderRadius:9,background:ghost?'none':'#1a1a1a',color:ghost?'#666':'#fff',cursor:'pointer',fontSize:13,fontWeight:600}}>{children}</button>
+  <button onClick={onClick} style={{flex:1,padding:'8px 12px',border:ghost?'1px solid #DEDED8':'none',borderRadius:8,background:ghost?'none':'#1a1a1a',color:ghost?'#666':'#fff',cursor:'pointer',fontSize:13,fontWeight:600}}>{children}</button>
 );}
 function IBtn({children,onClick}){return(
-  <button onClick={onClick} style={{width:34,height:34,border:'1px solid #E8E7E2',borderRadius:8,background:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,color:'#555'}}>{children}</button>
+  <button onClick={onClick} style={{width:32,height:32,border:'1px solid #E8E7E2',borderRadius:7,background:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,color:'#555'}}>{children}</button>
 );}
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
